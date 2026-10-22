@@ -1,3 +1,4 @@
 model_frame.joblib
 driver.db
 __pycache__/
+venv/

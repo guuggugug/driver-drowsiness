@@ -5,3 +5,5 @@ pandas
 scikit-learn
 joblib
 pygame
+pillow
+pyttsx3
