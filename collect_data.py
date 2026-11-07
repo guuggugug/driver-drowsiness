@@ -8,20 +8,20 @@ import db
 import features as F
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--driver", default="driver1")
+ap.add_argument("--user", default="user1")
 ap.add_argument("--camera", type=int, default=0)
 ap.add_argument("--recalibrate", action="store_true")
 args = ap.parse_args()
 
 con = db.connect()
-drv = db.get_driver(con, args.driver)
+usr = db.get_user(con, args.user)
 cap = cv2.VideoCapture(args.camera)
 tracker = F.FaceTracker()
 
-base = None if args.recalibrate else db.get_baseline(drv)
+base = None if args.recalibrate else db.get_baseline(usr)
 if base is None:
     base = F.run_calibration(cap, tracker)
-    db.save_baseline(con, drv["id"], base)
+    db.save_baseline(con, usr["id"], base)
 
 label, recording, sid, buf = 0, False, None, []
 counts = {0: 0, 1: 0, 2: 0}
@@ -45,7 +45,7 @@ while True:
     cv2.putText(frame, f"alert={counts[0]} drowsy={counts[1]} yawn={counts[2]}" +
                 ("" if pts is not None else "  NO FACE"),
                 (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-    cv2.imshow("Driver Monitor", frame)
+    cv2.imshow("Drowsiness Monitor", frame)
 
     k = cv2.waitKey(1) & 0xFF
     if k == ord("q"):
@@ -55,7 +55,7 @@ while True:
     elif k == ord(" "):
         recording = not recording
         if recording:
-            sid = db.new_session(con, drv["id"], "collect")   # moi lan bat ghi = 1 phien lien tuc
+            sid = db.new_session(con, usr["id"], "collect")   # moi lan bat ghi = 1 phien lien tuc
         else:
             if buf:
                 db.add_samples(con, buf)
@@ -63,7 +63,7 @@ while True:
             db.end_session(con, sid)
     elif k == ord("c"):
         base = F.run_calibration(cap, tracker)
-        db.save_baseline(con, drv["id"], base)
+        db.save_baseline(con, usr["id"], base)
 
 if buf:
     db.add_samples(con, buf)

@@ -97,7 +97,7 @@ def calibrate_from(raws):
 
 
 def normalize(raw, base):
-    """EAR chia baseline cua tai xe, pitch tru baseline -> model dung duoc cho nhieu nguoi."""
+    """EAR chia baseline cua nguoi dung, pitch tru baseline -> model dung duoc cho nhieu nguoi."""
     return np.array([raw[0] / base["ear"], raw[1], raw[2] - base["pitch"], raw[3]])
 
 
@@ -129,7 +129,7 @@ def run_calibration(cap, tracker, seconds=8):
                     (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         cv2.putText(frame, f"Frames OK: {len(raws)}  |  Giu dau thang, mat nhin thang",
                     (15, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 255, 200), 1)
-        cv2.imshow("Driver Monitor", frame)
+        cv2.imshow("Drowsiness Monitor", frame)
         cv2.waitKey(1)
     if len(raws) < 10:
         raise RuntimeError(

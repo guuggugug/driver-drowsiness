@@ -1,12 +1,12 @@
-# Driver Drowsiness Detection
+# Drowsiness Detection
 
 ## Cai dat
     pip install -r requirements.txt
 
 ## Cach 1: Chi dung webcam cua ban (nhanh, it du lieu)
-    python collect_data.py --driver ten_ban   # 1) thu du lieu (phim 0/1/2, SPACE bat/tat ghi, q thoat)
+    python collect_data.py --user ten_ban   # 1) thu du lieu (phim 0/1/2, SPACE bat/tat ghi, q thoat)
     python train.py                           # 2) train -> model_frame.joblib (+ model_window.joblib neu du du lieu)
-    python app.py --driver ten_ban            # 3) chay real-time
+    python app.py --user ten_ban            # 3) chay real-time
 
 ## Cach 2: Dung them dataset NTHU-DDD tu Kaggle (chinh xac hon, nhieu nguoi hon)
     1) Tai va giai nen dataset Kaggle ve may ban.
@@ -21,7 +21,7 @@
     4) Train lai (gop ca du lieu NTHU + webcam neu co):
          python train.py
     5) Chay real-time (uu tien tu dong model_window, roi den model_frame):
-         python app.py --driver ten_ban
+         python app.py --user ten_ban
 
 Ghi chu:
 - ingest_nthu.py tu nhan dien 2 dang dataset pho bien: ANH da tach theo thu muc lop,
@@ -30,4 +30,4 @@ Ghi chu:
 - model_window.joblib chinh xac hon vi dung chuoi frame lien tuc (bat duoc toc do chop
   mat/PERCLOS); model_frame.joblib du doan tung anh doc lap, dung lam du phong khi chua
   co du lieu video/webcam lien tuc.
-- Xem driver.db bang DB Browser for SQLite. Bang: drivers, sessions, samples, events.
+- Xem monitor.db bang DB Browser for SQLite. Bang: users, sessions, samples, events.

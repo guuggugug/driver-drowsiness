@@ -1,4 +1,4 @@
-"""Giam sat tai xe real-time – canh bao bang TIENG VIET.
+"""Giam sat buon ngu real-time – canh bao bang TIENG VIET.
 Thu tu uu tien: model_window.joblib > model_frame.joblib > luat EAR/MAR co ban.
 Phim: q=thoat  c=hieu chinh lai
 """
@@ -104,7 +104,7 @@ def rule_predict(f, ear_thresh):
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 ap = argparse.ArgumentParser()
-ap.add_argument("--driver",       default="driver1")
+ap.add_argument("--user",       default="user1")
 ap.add_argument("--camera",       type=int,   default=0)
 ap.add_argument("--model-window", default="model_window.joblib")
 ap.add_argument("--model-frame",  default="model_frame.joblib")
@@ -121,7 +121,7 @@ pygame.mixer.init(frequency=44100, size=-16, channels=1)
 beeps = {1: make_beep(700, 0.3), 2: make_beep(1400, 0.7)}
 
 con = db.connect()
-drv = db.get_driver(con, args.driver)
+usr = db.get_user(con, args.user)
 
 mode, model = "rule", None
 if os.path.exists(args.model_window):
@@ -137,12 +137,12 @@ print("Che do:", {"window": "MODEL WINDOW (chinh xac nhat)",
 
 cap     = cv2.VideoCapture(args.camera)
 tracker = F.FaceTracker()
-base    = None if args.recalibrate else db.get_baseline(drv)
+base    = None if args.recalibrate else db.get_baseline(usr)
 if base is None:
     base = F.run_calibration(cap, tracker)
-    db.save_baseline(con, drv["id"], base)
+    db.save_baseline(con, usr["id"], base)
 
-sid        = db.new_session(con, drv["id"], "drive")
+sid        = db.new_session(con, usr["id"], "monitor")
 win        = collections.deque(maxlen=F.WIN)
 vote       = collections.deque(maxlen=7)
 bad_since  = no_face_since = None
@@ -237,7 +237,7 @@ while True:
         speak("Cảnh báo! Bạn đang buồn ngủ. Hãy tỉnh táo!")
         last_speak = now
     elif level == 2 and now - last_speak > TTS_CD:
-        speak("Nguy hiểm! Mắt nhắm quá lâu. Dừng xe ngay!")
+        speak("Nguy hiểm! Mắt nhắm quá lâu. Hãy nghỉ ngơi ngay!")
         last_speak = now
 
     # --- Overlay canh bao ---
@@ -248,7 +248,7 @@ while True:
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, h-95), (w, h), color, -1)
         cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
-        warn_text = ("🚨 NGUY HIỂM! DỪNG XE NGAY!"
+        warn_text = ("🚨 NGUY HIỂM! HÃY NGHỈ NGƠI NGAY!"
                      if level == 2
                      else "⚠  CẢNH BÁO: BẠN ĐANG BUỒN NGỦ!")
         put_vn(frame, warn_text, (18, h - 82), _font_lg,
@@ -270,14 +270,14 @@ while True:
     put_vn(frame, f"[{mode}]  {state_str}  ({conf:.0%})",
            (12, 8), _font_sm, color=sc)
 
-    cv2.imshow("Driver Monitor – Giam sat tai xe", frame)
+    cv2.imshow("Drowsiness Monitor – Giam sat buon ngu", frame)
 
     k = cv2.waitKey(1) & 0xFF
     if k == ord("q"):
         break
     if k == ord("c"):
         base = F.run_calibration(cap, tracker)
-        db.save_baseline(con, drv["id"], base)
+        db.save_baseline(con, usr["id"], base)
         win.clear(); vote.clear()
 
 db.end_session(con, sid)

@@ -29,8 +29,8 @@ args = ap.parse_args()
 
 con = sqlite3.connect(db.DB_PATH)
 df = pd.read_sql_query(
-    "SELECT s.session_id, se.kind, d.name AS driver, s.t, s.ear_n, s.mar, s.dpitch, s.roll, s.label "
-    "FROM samples s JOIN sessions se ON se.id=s.session_id JOIN drivers d ON d.id=se.driver_id "
+    "SELECT s.session_id, se.kind, u.name AS user_name, s.t, s.ear_n, s.mar, s.dpitch, s.roll, s.label "
+    "FROM samples s JOIN sessions se ON se.id=s.session_id JOIN users u ON u.id=se.user_id "
     "ORDER BY s.session_id, s.id", con)
 if df.empty:
     raise SystemExit("Chua co du lieu. Chay collect_data.py hoac ingest_nthu.py truoc.")

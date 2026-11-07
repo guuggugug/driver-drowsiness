@@ -1,4 +1,4 @@
-"""Nap dataset NTHU-DDD (hoac dataset tuong tu) tu Kaggle vao driver.db.
+"""Nap dataset NTHU-DDD (hoac dataset tuong tu) tu Kaggle vao user.db.
 
 Ho tro 2 dang pho bien tren Kaggle:
   A) ANH da tach san, chia theo thu muc lop, vd:
@@ -140,7 +140,7 @@ def read_frame_labels(path):
 def ingest_images(root, custom_map, max_per_group, stride):
     con = db.connect()
     tracker = F.FaceTracker()
-    driver = db.get_driver(con, "nthu_dataset")
+    user = db.get_user(con, "nthu_dataset")
 
     # Group by (group_key, label) to ensure balanced sampling per class
     by_group_label = defaultdict(list)
@@ -171,7 +171,7 @@ def ingest_images(root, custom_map, max_per_group, stride):
             items = items[::stride]
         if max_per_group:
             items = items[:max_per_group]
-        sid = db.new_session(con, driver["id"], f"nthu_img:{gkey}")
+        sid = db.new_session(con, user["id"], f"nthu_img:{gkey}")
         raws, labs = [], []
         for p, lab in items:
             img = cv2.imread(p)
@@ -207,7 +207,7 @@ def ingest_images(root, custom_map, max_per_group, stride):
 def ingest_videos(root, stride):
     con = db.connect()
     tracker = F.FaceTracker()
-    driver = db.get_driver(con, "nthu_dataset")
+    user = db.get_user(con, "nthu_dataset")
     vids = list(find_files(root, VID_EXT))
     print(f"Tim thay {len(vids)} video.")
     total_ok = 0
@@ -238,7 +238,7 @@ def ingest_videos(root, stride):
         raws, labs = np.array(raws), np.array(labs)
         alert_mask = labs == 0
         base = F.calibrate_from(raws[alert_mask] if alert_mask.sum() >= 10 else raws)
-        sid = db.new_session(con, driver["id"], f"nthu_vid:{os.path.relpath(vp, root)}")
+        sid = db.new_session(con, user["id"], f"nthu_vid:{os.path.relpath(vp, root)}")
         rows = []
         for k, (r, lab) in enumerate(zip(raws, labs)):
             n = F.normalize(r, base)
