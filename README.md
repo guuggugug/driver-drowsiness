@@ -8,6 +8,15 @@
     python train.py                           # 2) train -> model_frame.joblib (+ model_window.joblib neu du du lieu)
     python app.py --user ten_ban            # 3) chay real-time
 
+### Meo thu du lieu de model KHONG bao nham khi quay mat
+- Ghi nhieu phien (moi lan SPACE bat/tat = 1 phien, nen >= 3 phien moi nhan).
+- Nhan 0 (tinh tao): mat MO, nhung hay quay dau trai/phai, nhin guong, nhin xuong
+  bang dong ho, nhin len -> model hoc duoc "quay mat di != buon ngu".
+- Nhan 1 (buon ngu): nham mat lau, lim dim, gat dau.
+- Nhan 2 (ngap): ngap that hoac gia ngap.
+- app.py: `--yaw-thresh 0.18` (nguong coi la quay mat, xem so `yaw=` tren man hinh),
+  `--distract-after 3` (giay quay mat lien tuc -> nhac nhin ve phia truoc, 0 = tat).
+
 ## Cach 2: Dung them dataset NTHU-DDD tu Kaggle (chinh xac hon, nhieu nguoi hon)
     1) Tai va giai nen dataset Kaggle ve may ban.
     2) Xem thu cau truc va kiem tra nhan doan duoc (KHONG nap gi ca):

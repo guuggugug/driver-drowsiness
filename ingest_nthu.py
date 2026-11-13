@@ -182,7 +182,7 @@ def ingest_images(root, custom_map, max_per_group, stride):
             if pts is None:
                 total_bad += 1
                 continue
-            raws.append(F.raw_features(pts))
+            raws.append(F.raw_features(pts, tracker.extras))
             labs.append(lab)
         if not raws:
             db.end_session(con, sid)
@@ -194,7 +194,7 @@ def ingest_images(root, custom_map, max_per_group, stride):
         rows = []
         for k, (r, lab) in enumerate(zip(raws, labs)):
             n = F.normalize(r, base)
-            rows.append((sid, time.time() + k * 1e-3, float(n[0]), float(n[1]), float(n[2]), float(n[3]), int(lab)))
+            rows.append(db.sample_row(sid, time.time() + k * 1e-3, n, lab))
         db.add_samples(con, rows)
         db.end_session(con, sid)
         total_ok += len(rows)
@@ -228,7 +228,7 @@ def ingest_videos(root, stride):
                 if pts is not None:
                     # Nhan goc NTHU thuong la nhi phan 0/1 (khong tach rieng ngap);
                     # neu file nhan cua ban co dang khac, cho minh biet de chinh lai.
-                    raws.append(F.raw_features(pts))
+                    raws.append(F.raw_features(pts, tracker.extras))
                     labs.append(1 if labels[i] >= 1 else 0)
             i += 1
         cap.release()
@@ -242,7 +242,7 @@ def ingest_videos(root, stride):
         rows = []
         for k, (r, lab) in enumerate(zip(raws, labs)):
             n = F.normalize(r, base)
-            rows.append((sid, time.time() + k * 1e-3, float(n[0]), float(n[1]), float(n[2]), float(n[3]), int(lab)))
+            rows.append(db.sample_row(sid, time.time() + k * 1e-3, n, lab))
         db.add_samples(con, rows)
         db.end_session(con, sid)
         total_ok += len(rows)

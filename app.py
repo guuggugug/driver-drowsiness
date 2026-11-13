@@ -92,12 +92,18 @@ def make_beep(freq, dur):
     return pygame.sndarray.make_sound(stereo)
 
 
-# ─── Luat du phong ───────────────────────────────────────────────────────────
-def rule_predict(f, ear_thresh):
-    # f[3] = closed_frac (ty le frame mat nham trong cua so 1.5s)
-    if f[3] > ear_thresh or f[7] < -0.12:
-        return 1   # buon ngu
-    if f[6] > 0.5:
+# ─── Luat du phong (dua tren model co san cua MediaPipe) ─────────────────────
+FI = F.FI
+
+
+def rule_predict(f):
+    if f[FI["away_frac"]] > 0.3:
+        return 0   # dang nhin cho khac -> khong ket luan buon ngu
+    if f[FI["blink_closed_frac"]] > 0.6:
+        return 1   # mat nham phan lon thoi gian trong cua so ~1.5s
+    if f[FI["pitch_mean"]] < -0.15 and f[FI["blink_mean"]] > 0.35:
+        return 1   # gat dau + mat lim dim
+    if f[FI["jaw_frac"]] > 0.3 or f[FI["yawn_frac"]] > 0.5:
         return 2   # ngap
     return 0
 
@@ -112,9 +118,15 @@ ap.add_argument("--warn-after",   type=float, default=1.0,
                 help="giay mat nham -> canh bao nhe")
 ap.add_argument("--alarm-after",  type=float, default=2.0,
                 help="giay mat nham -> bao dong manh")
-ap.add_argument("--ear-thresh",   type=float, default=0.60,
-                help="EAR_n < nguong nay = mat nham (mac dinh 0.60)")
+ap.add_argument("--blink-thresh", type=float, default=F.BLINK_CLOSED,
+                help="diem nham mat (MediaPipe) > nguong nay = mat nham (mac dinh 0.5)")
+ap.add_argument("--open-veto",    type=float, default=0.25,
+                help="diem nham mat TB < nguong nay = mat dang MO ro -> bo canh bao buon ngu cua model")
 ap.add_argument("--recalibrate",  action="store_true")
+ap.add_argument("--yaw-thresh",   type=float, default=F.YAW_AWAY,
+                help="|yaw| > nguong nay = dang quay mat (khong tinh la buon ngu)")
+ap.add_argument("--distract-after", type=float, default=3.0,
+                help="giay quay mat lien tuc -> nhac nhin ve phia truoc (0 = tat)")
 args = ap.parse_args()
 
 pygame.mixer.init(frequency=44100, size=-16, channels=1)
@@ -124,16 +136,19 @@ con = db.connect()
 usr = db.get_user(con, args.user)
 
 mode, model = "rule", None
-if os.path.exists(args.model_window):
-    model = joblib.load(args.model_window)["model"]
-    mode  = "window"
-elif os.path.exists(args.model_frame):
-    model = joblib.load(args.model_frame)["model"]
-    mode  = "frame"
+for _m, _path, _nfeat in (("window", args.model_window, len(F.FEATURE_NAMES)),
+                          ("frame",  args.model_frame,  len(F.FRAME_FEATURES))):
+    if os.path.exists(_path):
+        _mdl = joblib.load(_path)["model"]
+        if getattr(_mdl, "n_features_in_", _nfeat) != _nfeat:
+            print(f"Bo qua {_path}: model cu (khac bo dac trung) -> hay chay lai train.py")
+            continue
+        mode, model = _m, _mdl
+        break
 
-print("Che do:", {"window": "MODEL WINDOW (chinh xac nhat)",
-                  "frame":  "MODEL FRAME (du phong)",
-                  "rule":   "LUAT CO BAN (chua co model)"}[mode])
+print("Che do:", {"window": "MODEL WINDOW cua ban + MediaPipe",
+                  "frame":  "MODEL FRAME cua ban + MediaPipe",
+                  "rule":   "CHI MediaPipe (chua train model rieng)"}[mode])
 
 cap     = cv2.VideoCapture(args.camera)
 tracker = F.FaceTracker()
@@ -145,13 +160,15 @@ if base is None:
 sid        = db.new_session(con, usr["id"], "monitor")
 win        = collections.deque(maxlen=F.WIN)
 vote       = collections.deque(maxlen=7)
-bad_since  = no_face_since = None
+blink_hist = collections.deque(maxlen=15)   # ~0.5s diem nham mat gan nhat
+bad_since  = no_face_since = away_since = None
 level      = 0
+cur_etype  = "drowsy"
 last_beep  = last_yawn = last_speak = 0.0
 pred, conf = 0, 0.0
 TTS_CD     = 4.0   # cooldown giua cac lan phat am (giay)
 
-STATE_VN = {0: "Tỉnh táo ✓", 1: "BUỒN NGỦ ⚠", 2: "ĐANG NGÁP"}
+STATE_VN = {0: "Tỉnh táo ✓", 1: "BUỒN NGỦ ⚠", 2: "ĐANG NGÁP", 3: "Đang nhìn chỗ khác"}
 
 # ─── Vong lap chinh ──────────────────────────────────────────────────────────
 while True:
@@ -164,16 +181,19 @@ while True:
 
     # --- Khong co khuon mat ---
     if pts is None:
-        win.clear(); vote.clear(); bad_since = None
+        win.clear(); vote.clear(); blink_hist.clear(); bad_since = None; away_since = None
         no_face_since = no_face_since or now
         if now - no_face_since > 2:
             new_level, etype = 1, "no_face"
         status_id = -1
     else:
         no_face_since = None
-        n = F.normalize(F.raw_features(pts), base)
+        n    = F.normalize(F.raw_features(pts, tracker.extras), base)
+        away = F.looking_away(n, args.yaw_thresh)
+        blink_hist.append(n[5])
+        blink_avg = float(np.mean(blink_hist))
 
-        # --- Du doan ---
+        # --- 1) Du doan bang model cua ban (hoac luat MediaPipe neu chua co) ---
         if mode == "frame":
             proba     = model.predict_proba([n])[0]
             vote.append(int(model.classes_[proba.argmax()]))
@@ -187,13 +207,28 @@ while True:
                     proba     = model.predict_proba([f])[0]
                     pred, conf = int(model.classes_[proba.argmax()]), float(proba.max())
                 else:
-                    pred, conf = rule_predict(f, 1 - args.ear_thresh), 1.0
+                    pred, conf = rule_predict(f), 1.0
 
-        # --- Ep buon ngu neu mat nham tit ---
-        # n[0] = EAR_normalized; < ear_thresh nghia la mat dang nham
-        if n[0] < args.ear_thresh and pred == 0:
-            pred = 1
-            conf = 0.92
+        # --- 2) Ket hop voi model co san MediaPipe ---
+        # Phu quyet: model bao buon ngu nhung MediaPipe thay mat dang MO ro
+        # (va khong gat dau) -> khong bao.
+        if pred == 1 and blink_avg < args.open_veto and n[2] > -0.15:
+            pred = 0
+
+        if away:
+            # Quay mat sang ben -> KHONG coi la buon ngu
+            away_since = away_since or now
+            if pred == 1:
+                pred = 0
+            if args.distract_after > 0 and now - away_since >= args.distract_after:
+                new_level, etype = 1, "distracted"
+        else:
+            away_since = None
+            # Ep buon ngu neu MediaPipe thay mat nham (khi nhin thang, khong dang ngap).
+            # Chop mat binh thuong ~0.3s se bi loc boi --warn-after (1s).
+            if n[5] > args.blink_thresh and n[6] < F.JAW_OPEN and pred == 0:
+                pred = 1
+                conf = float(n[5])
 
         # --- Muc canh bao ---
         if pred == 1:
@@ -214,30 +249,34 @@ while True:
                 speak("Bạn đang ngáp. Hãy nghỉ ngơi!")
                 last_speak = now
 
-        status_id = pred
+        status_id = 3 if (away and pred != 2) else pred
 
         # Ve diem mat
         for i in F.L_EYE + F.R_EYE:
-            cv2.circle(frame, tuple(pts[i].astype(int)), 1, (0, 255, 0), -1)
+            cv2.circle(frame, tuple(pts[i][:2].astype(int)), 1, (0, 255, 0), -1)
         cv2.putText(frame,
-                    f"EAR_n={n[0]:.2f}  MAR={n[1]:.2f}  pitch={n[2]:+.2f}",
+                    f"Nham mat={n[5]:.2f}  Ha mieng={n[6]:.2f}  pitch={n[2]:+.2f}  yaw={n[4]:+.2f}",
                     (20, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1)
 
     # --- Cap nhat muc + beep ---
-    if new_level > level:
+    if new_level > level or (new_level and etype != cur_etype):
         db.add_event(con, sid, etype, new_level, conf)
-    level = new_level
+    level, cur_etype = new_level, etype
 
     if level and now - last_beep > (0.7 if level == 2 else 2.0):
         beeps[level].play()
         last_beep = now
 
-    # --- TTS canh bao buon ngu ---
-    if level == 1 and now - last_speak > TTS_CD:
-        speak("Cảnh báo! Bạn đang buồn ngủ. Hãy tỉnh táo!")
-        last_speak = now
-    elif level == 2 and now - last_speak > TTS_CD:
-        speak("Nguy hiểm! Mắt nhắm quá lâu. Hãy nghỉ ngơi ngay!")
+    # --- TTS canh bao ---
+    if level and now - last_speak > TTS_CD:
+        if cur_etype == "distracted":
+            speak("Hãy nhìn về phía trước!")
+        elif cur_etype == "no_face":
+            speak("Không thấy khuôn mặt.")
+        elif level == 1:
+            speak("Cảnh báo! Bạn đang buồn ngủ. Hãy tỉnh táo!")
+        else:
+            speak("Nguy hiểm! Mắt nhắm quá lâu. Hãy nghỉ ngơi ngay!")
         last_speak = now
 
     # --- Overlay canh bao ---
@@ -248,9 +287,14 @@ while True:
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, h-95), (w, h), color, -1)
         cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
-        warn_text = ("🚨 NGUY HIỂM! HÃY NGHỈ NGƠI NGAY!"
-                     if level == 2
-                     else "⚠  CẢNH BÁO: BẠN ĐANG BUỒN NGỦ!")
+        if cur_etype == "distracted":
+            warn_text = "👀 HÃY NHÌN VỀ PHÍA TRƯỚC!"
+        elif cur_etype == "no_face":
+            warn_text = "⚠  KHÔNG THẤY KHUÔN MẶT"
+        elif level == 2:
+            warn_text = "🚨 NGUY HIỂM! HÃY NGHỈ NGƠI NGAY!"
+        else:
+            warn_text = "⚠  CẢNH BÁO: BẠN ĐANG BUỒN NGỦ!"
         put_vn(frame, warn_text, (18, h - 82), _font_lg,
                color=(255, 255, 255),
                bg=(160, 0, 0) if level == 2 else (0, 70, 180))
@@ -265,9 +309,11 @@ while True:
         sc = (100, 100, 255)
     else:
         state_str = STATE_VN.get(status_id, "?")
-        sc = (80, 255, 80) if status_id == 0 else (80, 80, 255)
+        sc = ((80, 255, 80) if status_id == 0
+              else (0, 220, 255) if status_id == 3
+              else (80, 80, 255))
 
-    put_vn(frame, f"[{mode}]  {state_str}  ({conf:.0%})",
+    put_vn(frame, f"[{mode}+MediaPipe]  {state_str}  ({conf:.0%})",
            (12, 8), _font_sm, color=sc)
 
     cv2.imshow("Drowsiness Monitor – Giam sat buon ngu", frame)

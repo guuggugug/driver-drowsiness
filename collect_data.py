@@ -31,9 +31,11 @@ while True:
     if not ok:
         break
     pts = tracker.landmarks(frame)
-    if pts is not None and recording:
-        n = F.normalize(F.raw_features(pts), base)
-        buf.append((sid, time.time(), float(n[0]), float(n[1]), float(n[2]), float(n[3]), label))
+    n = None
+    if pts is not None:
+        n = F.normalize(F.raw_features(pts, tracker.extras), base)
+    if n is not None and recording:
+        buf.append(db.sample_row(sid, time.time(), n, label))
         counts[label] += 1
         if len(buf) >= 100:
             db.add_samples(con, buf)
@@ -43,8 +45,11 @@ while True:
     cv2.putText(frame, f"{'REC' if recording else 'PAUSED'} | label={label}:{F.LABELS[label]}",
                 (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     cv2.putText(frame, f"alert={counts[0]} drowsy={counts[1]} yawn={counts[2]}" +
-                ("" if pts is not None else "  NO FACE"),
+                (f"  blink={n[5]:.2f} yaw={n[4]:+.2f}" if n is not None else "  NO FACE"),
                 (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    if label == 0:
+        cv2.putText(frame, "Goi y: mat MO, quay dau trai/phai, nhin guong, nhin xuong, nhin len",
+                    (20, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1)
     cv2.imshow("Drowsiness Monitor", frame)
 
     k = cv2.waitKey(1) & 0xFF
