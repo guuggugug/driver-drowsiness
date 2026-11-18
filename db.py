@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS events(
   type TEXT, level INTEGER, score REAL,
   FOREIGN KEY(session_id) REFERENCES sessions(id));
 CREATE INDEX IF NOT EXISTS idx_samples_session ON samples(session_id);
+CREATE TABLE IF NOT EXISTS faces(
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, emb BLOB NOT NULL, created REAL,
+  FOREIGN KEY(user_id) REFERENCES users(id));
 """
 
 # Cot moi them dan qua cac phien ban: (bang, cot, kieu)
@@ -114,3 +117,23 @@ def add_event(con, sid, etype, level, score=0.0):
     con.execute("INSERT INTO events(session_id,t,type,level,score) VALUES(?,?,?,?,?)",
                 (sid, time.time(), etype, level, float(score)))
     con.commit()
+
+
+# ─── Khuon mat da dang ky (nhan dien tai xe) ─────────────────────────────────
+def add_faces(con, user_id, embs, replace=False):
+    import numpy as np
+    if replace:
+        con.execute("DELETE FROM faces WHERE user_id=?", (user_id,))
+    con.executemany("INSERT INTO faces(user_id, emb, created) VALUES(?,?,?)",
+                    [(user_id, np.asarray(e, dtype=np.float32).tobytes(), time.time())
+                     for e in embs])
+    con.commit()
+
+
+def load_gallery(con):
+    """{ten_tai_xe: mang (k,128)} cua tat ca tai xe da dang ky."""
+    import numpy as np
+    out = {}
+    for r in con.execute("SELECT u.name, f.emb FROM faces f JOIN users u ON u.id=f.user_id"):
+        out.setdefault(r[0], []).append(np.frombuffer(r[1], dtype=np.float32))
+    return {k: np.stack(v) for k, v in out.items()}

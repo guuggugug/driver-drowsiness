@@ -15,6 +15,7 @@ import pygame
 from PIL import Image, ImageDraw, ImageFont
 
 import db
+import face_id as FID
 import features as F
 
 # ─── Text-to-Speech tieng Viet ───────────────────────────────────────────────
@@ -110,7 +111,9 @@ def rule_predict(f):
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 ap = argparse.ArgumentParser()
-ap.add_argument("--user",       default="user1")
+ap.add_argument("--user",       default=None,
+                help="ten tai xe; bo trong = tu nhan dien bang khuon mat")
+ap.add_argument("--no-faceid",    action="store_true", help="tat nhan dien tai xe")
 ap.add_argument("--camera",       type=int,   default=0)
 ap.add_argument("--model-window", default="model_window.joblib")
 ap.add_argument("--model-frame",  default="model_frame.joblib")
@@ -133,7 +136,6 @@ pygame.mixer.init(frequency=44100, size=-16, channels=1)
 beeps = {1: make_beep(700, 0.3), 2: make_beep(1400, 0.7)}
 
 con = db.connect()
-usr = db.get_user(con, args.user)
 
 mode, model = "rule", None
 for _m, _path, _nfeat in (("window", args.model_window, len(F.FEATURE_NAMES)),
@@ -152,12 +154,55 @@ print("Che do:", {"window": "MODEL WINDOW cua ban + MediaPipe",
 
 cap     = cv2.VideoCapture(args.camera)
 tracker = F.FaceTracker()
+
+# ─── Nhan dien tai xe ────────────────────────────────────────────────────────
+fid     = None if args.no_faceid else FID.try_load()
+gallery = db.load_gallery(con) if fid else {}
+if fid and not gallery:
+    print("Chua co tai xe nao dang ky khuon mat -> chay: python enroll.py --user ten_tai_xe")
+
+
+def identify_driver(seconds=3.0):
+    """Nhin camera vai giay, bo phieu -> ten tai xe da dang ky hoac None."""
+    votes, t0 = collections.Counter(), time.time()
+    while time.time() - t0 < seconds:
+        ok, fr = cap.read()
+        if not ok:
+            break
+        p = tracker.landmarks(fr)
+        if p is not None:
+            name, s = FID.FaceID.identify(fid.embed(fr, p), gallery)
+            votes[name] += 1
+            FID.draw_face(fr, p, f"{name or 'Nguoi la'} ({s:.2f})", closed=False)
+        cv2.rectangle(fr, (0, 0), (fr.shape[1], 45), (0, 0, 0), -1)
+        cv2.putText(fr, "DANG NHAN DIEN TAI XE... nhin vao camera", (12, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.imshow("Drowsiness Monitor", fr)
+        cv2.waitKey(1)
+    if not votes:
+        return None
+    name, cnt = votes.most_common(1)[0]
+    return name if cnt >= 0.6 * sum(votes.values()) else None
+
+
+user_name = args.user
+if user_name is None:
+    found = identify_driver() if gallery else None
+    user_name = found or "khach"
+    print("Tai xe:", found or "KHONG nhan ra -> dung ho so 'khach' "
+          "(dang ky bang: python enroll.py --user ten_ban)")
+usr = db.get_user(con, user_name)
+
 base    = None if args.recalibrate else db.get_baseline(usr)
 if base is None:
     base = F.run_calibration(cap, tracker)
     db.save_baseline(con, usr["id"], base)
 
 sid        = db.new_session(con, usr["id"], "monitor")
+seen_name, seen_score = (user_name if user_name in gallery else None), 0.0
+switch_votes = collections.deque(maxlen=3)   # 3 lan lien tiep thay nguoi khac -> doi ho so
+last_id    = 0.0
+ID_EVERY   = 1.0   # giay giua 2 lan nhan dien lai
 win        = collections.deque(maxlen=F.WIN)
 vote       = collections.deque(maxlen=7)
 blink_hist = collections.deque(maxlen=15)   # ~0.5s diem nham mat gan nhat
@@ -188,7 +233,27 @@ while True:
         status_id = -1
     else:
         no_face_since = None
-        n    = F.normalize(F.raw_features(pts, tracker.extras), base)
+        raw  = F.raw_features(pts, tracker.extras)
+
+        # --- Nhan dien lai tai xe moi ~1s (chi khi mat gan nhin thang) ---
+        if fid and gallery and now - last_id > ID_EVERY and abs(raw[4]) < 0.2:
+            last_id = now
+            seen_name, seen_score = FID.FaceID.identify(fid.embed(frame, pts), gallery)
+            switch_votes.append(seen_name)
+            # Doi tai xe: 3 lan lien tiep la nguoi khac (da dang ky + da hieu chinh) -> doi ho so
+            if (args.user is None and seen_name and seen_name != usr["name"]
+                    and len(switch_votes) == 3 and len(set(switch_votes)) == 1):
+                new_usr  = db.get_user(con, seen_name)
+                new_base = db.get_baseline(new_usr)
+                if new_base is not None:
+                    print(f"Doi tai xe: {usr['name']} -> {seen_name}")
+                    db.end_session(con, sid)
+                    usr, base = new_usr, new_base
+                    sid = db.new_session(con, usr["id"], "monitor")
+                    win.clear(); vote.clear(); blink_hist.clear(); bad_since = None
+                    speak(f"Xin chào {seen_name}")
+
+        n    = F.normalize(raw, base)
         away = F.looking_away(n, args.yaw_thresh)
         blink_hist.append(n[5])
         blink_avg = float(np.mean(blink_hist))
@@ -251,9 +316,13 @@ while True:
 
         status_id = 3 if (away and pred != 2) else pred
 
-        # Ve diem mat
-        for i in F.L_EYE + F.R_EYE:
-            cv2.circle(frame, tuple(pts[i][:2].astype(int)), 1, (0, 255, 0), -1)
+        # Ve khung mat + ten tai xe + vien mat (xanh = mo, do = nham)
+        if fid and gallery:
+            label = f"{seen_name or 'Nguoi la'} ({seen_score:.2f})"
+            fcol  = (255, 200, 0) if seen_name else (0, 165, 255)
+        else:
+            label, fcol = usr["name"], (255, 200, 0)
+        FID.draw_face(frame, pts, label, closed=n[5] > args.blink_thresh, color_face=fcol)
         cv2.putText(frame,
                     f"Nham mat={n[5]:.2f}  Ha mieng={n[6]:.2f}  pitch={n[2]:+.2f}  yaw={n[4]:+.2f}",
                     (20, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1)
