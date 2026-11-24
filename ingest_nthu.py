@@ -165,13 +165,15 @@ def ingest_images(root, custom_map, max_per_group, stride):
 
     total_count = sum(len(v) for v in by_group.values())
     print(f"Se nap {total_count} anh trong {len(by_group)} nhom.")
-    total_ok = total_bad = 0
+    total_bad = 0
+    data = {}   # gkey -> (raws, labs)
+
+    # Pass 1: doc anh, lay dac trung tho
     for gi, (gkey, items) in enumerate(by_group.items(), 1):
         if stride > 1:
             items = items[::stride]
         if max_per_group:
             items = items[:max_per_group]
-        sid = db.new_session(con, user["id"], f"nthu_img:{gkey}")
         raws, labs = [], []
         for p, lab in items:
             img = cv2.imread(p)
@@ -184,13 +186,21 @@ def ingest_images(root, custom_map, max_per_group, stride):
                 continue
             raws.append(F.raw_features(pts, tracker.extras))
             labs.append(lab)
-        if not raws:
-            db.end_session(con, sid)
-            print(f"[{gi}/{len(by_group)}] {gkey}: KHONG co anh hop le, bo qua")
+        data[gkey] = (np.array(raws), np.array(labs))
+        print(f"[{gi}/{len(by_group)}] {gkey}: doc {len(raws)} anh")
+
+    # Pass 2: MOT baseline chung, tinh tu tat ca anh tinh tao
+    all_raws = np.concatenate([r for r, _ in data.values() if len(r)])
+    all_labs = np.concatenate([l for r, l in data.values() if len(r)])
+    alert_raws = all_raws[all_labs == 0]
+    base = F.calibrate_from(alert_raws if len(alert_raws) >= 10 else all_raws)
+    print("Baseline chung:", base)
+
+    total_ok = 0
+    for gkey, (raws, labs) in data.items():
+        if len(raws) == 0:
             continue
-        raws, labs = np.array(raws), np.array(labs)
-        alert_mask = labs == 0
-        base = F.calibrate_from(raws[alert_mask] if alert_mask.sum() >= 10 else raws)
+        sid = db.new_session(con, user["id"], f"nthu_img:{gkey}")
         rows = []
         for k, (r, lab) in enumerate(zip(raws, labs)):
             n = F.normalize(r, base)
@@ -199,9 +209,8 @@ def ingest_images(root, custom_map, max_per_group, stride):
         db.end_session(con, sid)
         total_ok += len(rows)
         c = Counter(labs.tolist())
-        print(f"[{gi}/{len(by_group)}] {gkey}: {len(rows)} mau OK "
-              f"(alert={c.get(0,0)} drowsy={c.get(1,0)} yawn={c.get(2,0)})")
-    print(f"\nTONG: {total_ok} mau da luu, {total_bad} anh bo qua (khong thay mat / loi doc file).")
+        print(f"{gkey}: {len(rows)} mau (alert={c.get(0,0)} drowsy={c.get(1,0)} yawn={c.get(2,0)})")
+    print(f"\nTONG: {total_ok} mau da luu, {total_bad} anh bo qua.")
 
 
 def ingest_videos(root, stride):

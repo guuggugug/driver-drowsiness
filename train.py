@@ -7,6 +7,8 @@ Tao ra toi da 2 file model:
                          NTHU goc). Chinh xac hon vi bat duoc toc do chop mat/PERCLOS, va
                          la model app.py se uu tien dung.
 """
+
+
 import argparse
 import sqlite3
 
@@ -17,6 +19,7 @@ from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import train_test_split
 
 import db
 import features as F
@@ -61,8 +64,15 @@ if len(set(yf)) >= 2:
     clf_f = ExtraTreesClassifier(n_estimators=300, min_samples_leaf=2, random_state=42, n_jobs=-1)
     sw_f = compute_sample_weight("balanced", yf)
     sw_f = (sw_f / sw_f.mean()).astype(np.float64)
-    if len(set(gf)) >= 3:
+    if df["kind"].str.startswith("nthu_img").all():
+        # Anh roi rac, moi lop 1 session -> chia ngau nhien theo lop
+        tr, te = train_test_split(np.arange(len(yf)), test_size=0.2,
+                                  random_state=42, stratify=yf)
+    elif len(set(gf)) >= 3:
         tr, te = next(GroupShuffleSplit(test_size=0.2, random_state=42).split(Xf, yf, gf))
+    else:
+        tr = te = None
+    if tr is not None:
         clf_f.fit(Xf[tr], yf[tr], sample_weight=sw_f[tr])
         print("\n=== Danh gia MODEL FRAME ===")
         print(classification_report(yf[te], clf_f.predict(Xf[te]), zero_division=0))
