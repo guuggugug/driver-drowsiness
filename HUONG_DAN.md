@@ -10,8 +10,8 @@ Tài liệu này hướng dẫn từng bước từ lúc mở môi trường, đ
 2. Chạy 2 lệnh sau để vào thư mục dự án và bật môi trường ảo `.venv`:
 
 ```cmd
-cd /d C:\Users\tule\Documents\GitHub\driver-drowsiness
-.venv\Scripts\activate
+cd C:\Users\tule\Documents\GitHub\driver-drowsiness
+.venv\Scriptsctivate
 ```
 
 > **Lưu ý:** Nếu thấy `( .venv )` ở đầu dòng lệnh nghĩa là đã kích hoạt thành công.
@@ -70,7 +70,7 @@ python collect_data.py --user ten_ban
 - Nhấn phím số để chọn trạng thái trước khi ghi:
   - `0` (**Tỉnh táo**): Mắt **mở rõ**, nhìn thẳng, kết hợp quay đầu trái/phải, nhìn gương, nhìn lên/xuống để model học rằng quay mặt không phải buồn ngủ.
   - `1` (**Buồn ngủ**): Nhắm mắt lâu, lim dim, hoặc gật đầu (không ghi nhãn 1 khi mắt đang mở).
-  - `2` (**Ngáp**): Ngáp thật hoặc há miệng ngáp.
+  - `2` (**Ngáp**): Ngáp thật hoặc há miệng ngáp.x 
 - Nhấn `SPACE` để **bật/tắt** ghi (mỗi lần bật/tắt là 1 phiên; nên ghi ít nhất **3 phiên** cho mỗi nhãn).
 - Nhấn `q` để thoát.
 
@@ -103,4 +103,3 @@ Ví dụ chạy với camera số 1 và tăng ngưỡng nhắm mắt:
 ```cmd
 python app.py --camera 1 --blink-thresh 0.6
 ```
-
