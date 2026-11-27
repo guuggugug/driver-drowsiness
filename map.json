@@ -1,0 +1,10 @@
+{
+  "not_yawn": 0,
+  "yawn": 2,
+  "eyes_close": 1,
+  "eyes_open": 0,
+  "eye_close": 1,
+  "eye_open": 0,
+  "looking_away": 0,
+  "looking_forward": 0
+}

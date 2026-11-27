@@ -64,14 +64,9 @@ if len(set(yf)) >= 2:
     clf_f = ExtraTreesClassifier(n_estimators=300, min_samples_leaf=2, random_state=42, n_jobs=-1)
     sw_f = compute_sample_weight("balanced", yf)
     sw_f = (sw_f / sw_f.mean()).astype(np.float64)
-    if df["kind"].str.startswith("nthu_img").all():
-        # Anh roi rac, moi lop 1 session -> chia ngau nhien theo lop
-        tr, te = train_test_split(np.arange(len(yf)), test_size=0.2,
-                                  random_state=42, stratify=yf)
-    elif len(set(gf)) >= 3:
-        tr, te = next(GroupShuffleSplit(test_size=0.2, random_state=42).split(Xf, yf, gf))
-    else:
-        tr = te = None
+    # Chia ngau nhien theo lop de moi lop deu co mat trong tap test
+    tr, te = train_test_split(np.arange(len(yf)), test_size=0.2,
+                              random_state=42, stratify=yf)
     if tr is not None:
         clf_f.fit(Xf[tr], yf[tr], sample_weight=sw_f[tr])
         print("\n=== Danh gia MODEL FRAME ===")
